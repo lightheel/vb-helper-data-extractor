@@ -14,3 +14,4 @@ Extracts JSON game data, .wav SFX/BGM, battle background PNGs, and attack sprite
 - extracted_audio
 - extracted_battlebgs
 - extracted_digimon_stats
+![extracted_folder_names](https://github.com/lightheel/vb-helper-data-extractor/blob/main/extracted_folder_names.png)
