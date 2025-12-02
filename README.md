@@ -6,7 +6,8 @@ Extracts JSON game data, .wav SFX/BGM, battle background PNGs, and attack sprite
 
 # Instructions
 1. Download [windows-vb-helper-data-extractor.exe](https://github.com/lightheel/vb-helper-data-extractor/releases/download/Windows/windows-vb-helper-data-extractor.exe) from v1.0.0 releases.
-2. Select VITAL BRACELET ARENA_2.1.0.apk with the browse button.
+
+2. Select VITAL BRACELET ARENA_2.1.0.apk with the "Browse" button.
 
 ![apk_select](https://github.com/lightheel/vb-helper-data-extractor/blob/main/apk_select.png)
 
@@ -14,12 +15,13 @@ Extracts JSON game data, .wav SFX/BGM, battle background PNGs, and attack sprite
 ![apk_example](https://github.com/lightheel/vb-helper-data-extractor/blob/main/apk_example.png)
 
 
-3. Extract the files with EXTRACT ASSETS button.
+3. Extract the files with "Extract Assets" button.
 
 ![extract_button](https://github.com/lightheel/vb-helper-data-extractor/blob/main/extract_button.png)
 
 
 4. Create a folder on your Android device's root storage if one doesn't already exist.
+
 4. Copy the following folders to VBHelper folder:
 - extracted_atksprites
 - extracted_audio
