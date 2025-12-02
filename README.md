@@ -17,3 +17,8 @@ Extracts JSON game data, .wav SFX/BGM, battle background PNGs, and attack sprite
 
 
 ![extracted_folder_names](https://github.com/lightheel/vb-helper-data-extractor/blob/main/extracted_folder_names.png)
+
+# NOTE
+Setting up the assets for using Battle requires you run both **VB Helper Data Extractor** and **VB Helper Sprite Extractor**.
+
+**VB Helper Sprite Extractor** can be found [here](https://github.com/lightheel/vb-helper-sprite-extractor).
