@@ -9,6 +9,8 @@ Extracts JSON game data, .wav SFX/BGM, battle background PNGs, and attack sprite
 2. Select VITAL BRACELET ARENA_2.1.0.apk with the browse button.
 
 ![apk_select](https://github.com/lightheel/vb-helper-data-extractor/blob/main/apk_select.png)
+
+
 ![apk_example](https://github.com/lightheel/vb-helper-data-extractor/blob/main/apk_example.png)
 
 
