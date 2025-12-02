@@ -10,6 +10,8 @@ Extracts JSON game data, .wav SFX/BGM, battle background PNGs, and attack sprite
 
 ![apk_select](https://github.com/lightheel/vb-helper-data-extractor/blob/main/apk_select.png)
 ![apk_example](https://github.com/lightheel/vb-helper-data-extractor/blob/main/apk_example.png)
+
+
 3. Extract the files with EXTRACT ASSETS button.
 4. Create a folder on your Android device's root storage if one doesn't already exist.
 4. Copy the following folders to VBHelper folder:
