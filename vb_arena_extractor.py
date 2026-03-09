@@ -334,9 +334,9 @@ class MasterExtractor:
             'name', 'stage', 'attribute', 'baseHp', 'currentHp', 'baseBp', 'baseAp',
             'm_name', 'm_stage', 'm_attribute', 'm_baseHp', 'm_currentHp', 'm_baseBp', 'm_baseAp',
             'Name', 'Stage', 'Attribute', 'BaseHp', 'CurrentHp', 'BaseBp', 'BaseAp',
-            'm_Name', 'm_Stage', 'm_Attribute', 'm_BaseHp', 'm_CurrentHp', 'm_BaseBp', 'm_BaseAp'
+            'm_Name', 'm_Stage', 'm_Attribute', 'm_BaseHp', 'm_CurrentHp', 'm_BaseBp', 'm_BaseAp',
+            'hp', 'bp', 'ap', 'stage', 'attribute', 'm_Hp', 'm_Bp', 'm_Ap',
         ]
-        
         found_stats = 0
         for field in character_stat_fields:
             if hasattr(obj_data, field):
@@ -344,10 +344,34 @@ class MasterExtractor:
                     value = getattr(obj_data, field)
                     if value is not None:
                         found_stats += 1
-                except:
+                except Exception:
                     pass
-        
-        return found_stats >= 2  # At least 2 character stat fields to be considered a character object
+        return found_stats >= 2
+
+    def is_character_data_by_name(self, obj_name):
+        """Name-based hint for character/digimon data (used with at least one stat field)."""
+        if not obj_name:
+            return False
+        n = obj_name.lower()
+        return any(k in n for k in ('character', 'digimon', 'monster', 'dim', 'partner', 'vpet'))
+
+    def has_any_character_field(self, obj_data):
+        """True if object has at least one character-stat-like attribute."""
+        character_stat_fields = [
+            'name', 'stage', 'attribute', 'baseHp', 'currentHp', 'baseBp', 'baseAp',
+            'm_name', 'm_stage', 'm_attribute', 'm_baseHp', 'm_currentHp', 'm_baseBp', 'm_baseAp',
+            'Name', 'Stage', 'Attribute', 'BaseHp', 'CurrentHp', 'BaseBp', 'BaseAp',
+            'm_Name', 'm_Stage', 'm_Attribute', 'm_BaseHp', 'm_CurrentHp', 'm_BaseBp', 'm_BaseAp',
+            'hp', 'bp', 'ap', 'm_Hp', 'm_Bp', 'm_Ap',
+        ]
+        for field in character_stat_fields:
+            if hasattr(obj_data, field):
+                try:
+                    if getattr(obj_data, field) is not None:
+                        return True
+                except Exception:
+                    pass
+        return False
     
     def is_vb_repository_object(self, obj_type, obj_name):
         """Check if this object is related to VB.Repository classes from the decompiled code"""
@@ -1468,7 +1492,9 @@ class MasterExtractor:
             elif "config" in obj_name.lower() or "setting" in obj_name.lower():
                 result["ConfigData"] = 1
                 output_dir = self.config_data_dir
-            elif self.has_character_stats(obj_data):
+            elif self.has_character_stats(obj_data) or (
+                self.is_character_data_by_name(obj_name) and self.has_any_character_field(obj_data)
+            ):
                 result["CharacterData"] = 1
                 output_dir = self.character_data_dir
             elif self.is_vb_repository_object(obj.type.name, obj_name):
@@ -1573,12 +1599,13 @@ class MasterExtractor:
                     pbar.update(1)
     
     def extract_all_from_single_bundle(self, bundle_path):
-        """Extract audio and textures/sprites (atksprite, battlebg, hit) from a single bundle."""
+        """Extract audio, textures/sprites, and stats (including character_data) from a single bundle."""
         try:
             env = UnityPy.load(str(bundle_path))
             audio_objects = []
             texture2d_objects = []
             sprite_objects = []
+            stats_objects = []
             for obj in env.objects:
                 obj_type = obj.type.name
                 if obj_type == "AudioClip":
@@ -1587,6 +1614,8 @@ class MasterExtractor:
                     texture2d_objects.append(obj)
                 elif obj_type == "Sprite":
                     sprite_objects.append(obj)
+                elif self.is_relevant_object_type(obj_type):
+                    stats_objects.append(obj)
             # Audio
             for obj in audio_objects:
                 try:
@@ -1614,6 +1643,13 @@ class MasterExtractor:
                         self.save_atksprite_sprite(data)
                     elif self.is_hit_sprite_sprite(data):
                         self.save_hit_sprite_sprite(data)
+                except Exception:
+                    pass
+            # Stats (GameData, CharacterData, StatsData, ConfigData, JsonData)
+            for obj in stats_objects:
+                try:
+                    data = obj.read()
+                    self.process_stats_object(obj, data)
                 except Exception:
                     pass
             del env
