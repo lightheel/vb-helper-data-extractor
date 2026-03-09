@@ -73,31 +73,40 @@ def safe_tqdm(*args, **kwargs):
 
 class MasterExtractor:
     def __init__(self):
-        # Create ALL output directories upfront
-        self.atksprites_dir = Path("extracted_atksprites")
-        self.audio_dir = Path("extracted_audio")
-        self.battlebg_dir = Path("extracted_battlebgs")
+        # When running as .exe, put all outputs next to the executable so the user can find them
+        if getattr(sys, "frozen", False) and getattr(sys, "executable", None):
+            self._output_base = Path(sys.executable).parent.resolve()
+            logger.info(f"Running as executable - output folder: {self._output_base}")
+        else:
+            self._output_base = Path.cwd().resolve()
+        
+        # Use resolve() so paths are always absolute (critical when running as exe from different CWD)
+        self.atksprites_dir = (self._output_base / "extracted_atksprites").resolve()
+        self.audio_dir = (self._output_base / "extracted_audio").resolve()
+        self.battlebg_dir = (self._output_base / "extracted_battlebgs").resolve()
+        self.hit_sprites_dir = (self._output_base / "extracted_hit_sprites").resolve()
         
         # Create main directories with error handling
         try:
-            self.atksprites_dir.mkdir(exist_ok=True)
-            self.audio_dir.mkdir(exist_ok=True)
-            self.battlebg_dir.mkdir(exist_ok=True)
-            logger.info(f"Created output directories in: {Path.cwd()}")
+            self.atksprites_dir.mkdir(parents=True, exist_ok=True)
+            self.audio_dir.mkdir(parents=True, exist_ok=True)
+            self.battlebg_dir.mkdir(parents=True, exist_ok=True)
+            self.hit_sprites_dir.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Output directories: {self._output_base}")
         except Exception as e:
             logger.error(f"Error creating output directories: {e}")
             logger.error(f"Current working directory: {Path.cwd()}")
             raise
         
         # Create audio subdirectories
-        self.se_dir = self.audio_dir / "sound_effects"
-        self.bgm_dir = self.audio_dir / "background_music"
-        self.game_dir = self.audio_dir / "game_sounds"
+        self.se_dir = (self.audio_dir / "sound_effects").resolve()
+        self.bgm_dir = (self.audio_dir / "background_music").resolve()
+        self.game_dir = (self.audio_dir / "game_sounds").resolve()
         
         try:
-            self.se_dir.mkdir(exist_ok=True)
-            self.bgm_dir.mkdir(exist_ok=True)
-            self.game_dir.mkdir(exist_ok=True)
+            self.se_dir.mkdir(parents=True, exist_ok=True)
+            self.bgm_dir.mkdir(parents=True, exist_ok=True)
+            self.game_dir.mkdir(parents=True, exist_ok=True)
         except Exception as e:
             logger.error(f"Error creating audio subdirectories: {e}")
             raise
@@ -132,12 +141,18 @@ class MasterExtractor:
         # Track extracted files to skip existence checks (performance optimization)
         self.extracted_atksprites = set()
         self.extracted_battlebgs = set()
+        self.extracted_hit_sprites = set()
         self.extracted_stats_files = set()
         
         # Thread locks for thread-safe operations
         self._atksprites_lock = threading.Lock()
         self._battlebgs_lock = threading.Lock()
+        self._hit_sprites_lock = threading.Lock()
         self._stats_lock = threading.Lock()
+        # Debug: sample of texture/sprite names that matched no category (cap 50)
+        self._unmatched_texture_names = set()
+        self._unmatched_lock = threading.Lock()
+        self._unmatched_max = 50
         self._audio_lock = threading.Lock()
         self._animations_lock = threading.Lock()
         self._counters_lock = threading.Lock()
@@ -152,7 +167,7 @@ class MasterExtractor:
         }
         
         # Create stats output directories
-        self.stats_dir = Path("extracted_digimon_stats")
+        self.stats_dir = self._output_base / "extracted_digimon_stats"
         self.game_data_dir = self.stats_dir / "game_data"
         self.character_data_dir = self.stats_dir / "character_data"
         self.stats_data_dir = self.stats_dir / "stats_data"
@@ -201,34 +216,51 @@ class MasterExtractor:
         return unity_apk_path
     
     def extract_apk(self, apk_path):
-        """Extract APK and return path to extracted directory"""
-        temp_dir = Path("temp_extraction")
+        """Extract APK and return path to extracted directory. When running as .exe, extract next to the exe."""
+        if getattr(sys, "frozen", False) and getattr(sys, "executable", None):
+            temp_dir = Path(sys.executable).parent / "temp_extraction"
+        else:
+            temp_dir = Path("temp_extraction")
         temp_dir.mkdir(exist_ok=True)
-        
-        logger.info(f"Extracting Unity APK: {apk_path}")
+        logger.info(f"Extracting Unity APK to: {temp_dir}")
         with zipfile.ZipFile(apk_path, 'r') as zip_ref:
             zip_ref.extractall(temp_dir)
-        
         return temp_dir
+    
+    def _temp_extraction_paths(self):
+        """Paths to search for temp_extraction (and assets). When running as .exe, include exe directory."""
+        paths = [
+            Path("temp_extraction"),
+            Path(".") / "temp_extraction",
+            Path.cwd() / "temp_extraction",
+        ]
+        try:
+            paths.append(Path(__file__).parent / "temp_extraction")
+        except Exception:
+            pass
+        if getattr(sys, "frozen", False) and getattr(sys, "executable", None):
+            paths.append(Path(sys.executable).parent / "temp_extraction")
+        return paths
     
     def find_unity_assets(self, extracted_dir):
         """Find all Unity asset files with size filtering"""
         unity_files = []
         
-        # If extracted_dir is a string, convert to Path
         if isinstance(extracted_dir, str):
             extracted_dir = Path(extracted_dir)
+        base_paths = ([extracted_dir] if extracted_dir else []) + self._temp_extraction_paths()
+        seen = set()
+        unique_paths = []
+        for p in base_paths:
+            try:
+                key = str(p.resolve()) if p.exists() else str(p)
+            except Exception:
+                key = str(p)
+            if key not in seen:
+                seen.add(key)
+                unique_paths.append(p)
         
-        # Try multiple possible locations for the asset files
-        possible_paths = [
-            extracted_dir,
-            Path("temp_extraction"),
-            Path(".") / "temp_extraction",
-            Path(__file__).parent / "temp_extraction",
-            Path.cwd() / "temp_extraction"
-        ]
-        
-        for path in possible_paths:
+        for path in unique_paths:
             if path.exists():
                 for root, dirs, files in os.walk(path):
                     for file in files:
@@ -244,7 +276,7 @@ class MasterExtractor:
         
         if not unity_files:
             logger.error("No Unity asset files found in any expected location!")
-            logger.error(f"Checked paths: {[str(p) for p in possible_paths]}")
+            logger.error(f"Checked paths: {[str(p) for p in unique_paths]}")
             return []
         
         # Sort by path for deterministic processing
@@ -340,45 +372,53 @@ class MasterExtractor:
         """Check if this texture is an attack sprite texture"""
         texture_name = self.get_texture_name(texture_data, "Texture2D")
         texture_name_lower = texture_name.lower()
-        
-        # Check for attack sprite patterns
-        return (texture_name_lower.startswith('124_atk') or 
-                texture_name_lower.startswith('atk_l') or 
-                texture_name_lower.startswith('atk_s') or 
-                texture_name_lower.startswith('atkdot'))
+        # Broad patterns: 124_atk, atk_l, atk_s, atkdot, or any atk_ prefix
+        return (texture_name_lower.startswith('124_atk') or
+                texture_name_lower.startswith('atk_l') or
+                texture_name_lower.startswith('atk_s') or
+                texture_name_lower.startswith('atkdot') or
+                texture_name_lower.startswith('atk_'))
     
     def is_atksprite_sprite(self, sprite_data):
         """Check if this sprite is an attack sprite"""
         sprite_name = self.get_texture_name(sprite_data, "Sprite")
         sprite_name_lower = sprite_name.lower()
-        
-        # Check for attack sprite patterns
-        return (sprite_name_lower.startswith('124_atk') or 
-                sprite_name_lower.startswith('atk_l') or 
-                sprite_name_lower.startswith('atk_s') or 
-                sprite_name_lower.startswith('atkdot'))
+        return (sprite_name_lower.startswith('124_atk') or
+                sprite_name_lower.startswith('atk_l') or
+                sprite_name_lower.startswith('atk_s') or
+                sprite_name_lower.startswith('atkdot') or
+                sprite_name_lower.startswith('atk_'))
     
     # ===== BATTLE BACKGROUND EXTRACTION (from BattleBg_extractor.py) =====
     
     def is_battlebg_texture(self, texture_data):
-        """Check if this texture is a BattleBg texture"""
+        """Check if this texture is a BattleBg texture (case-insensitive)"""
         texture_name = self.get_texture_name(texture_data, "Texture2D")
-        return "BattleBg" in texture_name
+        name_lower = texture_name.lower()
+        return ("battlebg" in name_lower or "battle_bg" in name_lower or
+                "battle bg" in name_lower or "battlebackground" in name_lower or
+                ("battle" in name_lower and "bg" in name_lower))
+    
+    # ===== HIT/DMG SPRITES EXTRACTION =====
+    
+    def is_hit_sprite_texture(self, texture_data):
+        """Check if this texture is a hit/damage sprite (dmg_* or hit_*)"""
+        texture_name = self.get_texture_name(texture_data, "Texture2D")
+        name_lower = texture_name.lower()
+        return name_lower.startswith("dmg_") or name_lower.startswith("hit_")
+    
+    def is_hit_sprite_sprite(self, sprite_data):
+        """Check if this sprite is a hit/damage sprite (dmg_* or hit_*)"""
+        sprite_name = self.get_texture_name(sprite_data, "Sprite")
+        name_lower = sprite_name.lower()
+        return name_lower.startswith("dmg_") or name_lower.startswith("hit_")
     
     # ===== AUDIO EXTRACTION (from audio_extractor.py) =====
     
     def find_audio_bundle(self):
         """Find the bundle file containing audio assets"""
-        # Try multiple possible locations for the bundle files
-        possible_paths = [
-            Path("temp_extraction"),
-            Path(".") / "temp_extraction",
-            Path(__file__).parent / "temp_extraction",
-            Path.cwd() / "temp_extraction"
-        ]
-        
         bundle_files = []
-        for path in possible_paths:
+        for path in self._temp_extraction_paths():
             if path.exists():
                 bundle_files.extend(path.rglob("*.bundle"))
                 if bundle_files:
@@ -387,7 +427,7 @@ class MasterExtractor:
         
         if not bundle_files:
             logger.error("No bundle files found in any expected location!")
-            logger.error(f"Checked paths: {[str(p) for p in possible_paths]}")
+            logger.error(f"Checked paths: {[str(p) for p in self._temp_extraction_paths()]}")
             return None
         
         # Look for the serverdata bundle which contains audio
@@ -418,7 +458,7 @@ class MasterExtractor:
             return self.game_dir / f"{audio_name}.wav"
     
     def extract_audio_clip(self, audio_obj, audio_data):
-        """Extract a single audio clip"""
+        """Extract a single audio clip. UnityPy samples dict key is filename with correct extension (.wav/.ogg/.m4a)."""
         audio_name = audio_data.m_Name
         
         # Skip if already extracted
@@ -427,22 +467,27 @@ class MasterExtractor:
             return False
         
         try:
-            # Get audio samples
+            # Get audio samples (key = filename with extension from UnityPy)
             if not audio_data.samples:
                 logger.warning(f"No samples found for: {audio_name}")
                 self.failed_audio.add(audio_name)
                 return False
             
-            # Get the audio data (first sample)
-            sample_data = list(audio_data.samples.values())[0]
+            sample_filename, sample_data = next(iter(audio_data.samples.items()))
             if not sample_data:
                 logger.warning(f"No audio data found for: {audio_name}")
                 self.failed_audio.add(audio_name)
                 return False
             
-            # Categorize and save
+            # Categorize and save using correct extension from UnityPy
             category = self.categorize_audio(audio_name)
-            output_path = self.get_output_path(audio_name, category)
+            if category == "sound_effects":
+                out_dir = self.se_dir
+            elif category == "background_music":
+                out_dir = self.bgm_dir
+            else:
+                out_dir = self.game_dir
+            output_path = out_dir / sample_filename
             
             # Save the audio file
             with open(output_path, 'wb') as f:
@@ -536,24 +581,19 @@ class MasterExtractor:
     def find_bundle_files(self, extracted_dir=None):
         """Find all Unity bundle files"""
         bundle_files = []
+        base_paths = ([Path(extracted_dir) if isinstance(extracted_dir, str) else extracted_dir] if extracted_dir else []) + self._temp_extraction_paths()
+        seen = set()
+        unique_paths = []
+        for p in base_paths:
+            try:
+                key = str(p.resolve()) if p.exists() else str(p)
+            except Exception:
+                key = str(p)
+            if key not in seen:
+                seen.add(key)
+                unique_paths.append(p)
         
-        # Use provided directory or try multiple possible locations
-        if extracted_dir:
-            if isinstance(extracted_dir, str):
-                extracted_dir = Path(extracted_dir)
-            possible_paths = [extracted_dir]
-        else:
-            possible_paths = []
-        
-        # Add fallback paths
-        possible_paths.extend([
-            Path("temp_extraction"),
-            Path(".") / "temp_extraction",
-            Path(__file__).parent / "temp_extraction",
-            Path.cwd() / "temp_extraction"
-        ])
-        
-        for path in possible_paths:
+        for path in unique_paths:
             if path.exists():
                 bundle_files.extend(path.rglob("*.bundle"))
                 if bundle_files:
@@ -562,7 +602,7 @@ class MasterExtractor:
         
         if not bundle_files:
             logger.error("No bundle files found in any expected location!")
-            logger.error(f"Checked paths: {[str(p) for p in possible_paths]}")
+            logger.error(f"Checked paths: {[str(p) for p in unique_paths]}")
             return []
         
         # Sort by file size (largest first) for better efficiency
@@ -598,8 +638,9 @@ class MasterExtractor:
                 logger.info("=== MASTER EXTRACTION COMPLETE ===")
                 logger.info(f"All assets extracted successfully!")
                 logger.info(f"Audio files: {len(self.extracted_audio)}")
-                logger.info(f"Attack sprites: {self.total_atksprites}")
-                logger.info(f"Battle backgrounds: {self.total_battlebgs}")
+                logger.info(f"Attack sprites: {len(self.extracted_atksprites)}")
+                logger.info(f"Battle backgrounds: {self.battlebg_counter}")
+                logger.info(f"Hit/Dmg sprites: {len(self.extracted_hit_sprites)}")
                 logger.info(f"Stats data: {sum(self.extracted_stats.values())}")
                 
                 # Don't cleanup so we can examine the files
@@ -627,8 +668,8 @@ class MasterExtractor:
             # Final summary
             logger.info("=== MASTER EXTRACTION COMPLETE ===")
             logger.info(f"All assets extracted successfully!")
-            logger.info(f"Attack sprites: {self.total_atksprites}")
-            logger.info(f"Battle backgrounds: {self.total_battlebgs}")
+            logger.info(f"Attack sprites: {len(self.extracted_atksprites)}")
+            logger.info(f"Battle backgrounds: {self.battlebg_counter}")
             logger.info(f"Audio files: {len(self.extracted_audio)}")
             logger.info(f"Stats data: {sum(self.extracted_stats.values())}")
             
@@ -681,28 +722,27 @@ class MasterExtractor:
                             pbar.update(1)
                             continue
                         
-                        # Check if audio has samples
+                        # Check if audio has samples (key = filename with correct extension)
                         if not audio_data.samples:
                             logger.debug(f"No samples for: {audio_name}")
                             failed_count += 1
                             pbar.update(1)
                             continue
                         
-                        # Get audio data
-                        sample_data = list(audio_data.samples.values())[0]
+                        sample_filename, sample_data = next(iter(audio_data.samples.items()))
                         if not sample_data:
                             logger.debug(f"No audio data for: {audio_name}")
                             failed_count += 1
                             pbar.update(1)
                             continue
                         
-                        # Categorize and save
+                        # Categorize and save with correct extension (.wav/.ogg/.m4a)
                         if audio_name.startswith("se_"):
-                            output_path = self.se_dir / f"{audio_name}.wav"
+                            output_path = self.se_dir / sample_filename
                         elif audio_name.startswith("bgm_"):
-                            output_path = self.bgm_dir / f"{audio_name}.wav"
+                            output_path = self.bgm_dir / sample_filename
                         else:
-                            output_path = self.game_dir / f"{audio_name}.wav"
+                            output_path = self.game_dir / sample_filename
                         
                         # Save the audio file
                         with open(output_path, 'wb') as f:
@@ -1047,39 +1087,63 @@ class MasterExtractor:
         
         start_time = time.time()
         
-        # Find all Unity files - use the temp_dir parameter!
-        unity_files = self.find_unity_assets(temp_dir)
-        bundle_files = self.find_bundle_files(temp_dir)
+        # When running as .exe, set cwd to output folder so UnityPy and file writes resolve paths correctly
+        original_cwd = None
+        if getattr(sys, "frozen", False):
+            try:
+                original_cwd = os.getcwd()
+                os.chdir(self._output_base)
+                logger.info(f"Set working directory to: {self._output_base}")
+            except Exception as e:
+                logger.warning(f"Could not set working directory: {e}")
         
-        logger.info(f"Found {len(unity_files)} asset files and {len(bundle_files)} bundle files")
+        try:
+            unity_files = self.find_unity_assets(temp_dir)
+            bundle_files = self.find_bundle_files(temp_dir)
         
-        # Initialize counters
-        self.total_atksprites = 0
-        self.total_battlebgs = 0
-        self.extracted_stats = {
-            "GameData": 0,
-            "CharacterData": 0,
-            "StatsData": 0,
-            "ConfigData": 0,
-            "JsonData": 0
-        }
-        
-        # Process all files in a single pass with minimal loading
-        if unity_files:
-            logger.info("Processing asset files...")
-            self.process_asset_files(unity_files)
-        
-        if bundle_files:
-            logger.info("Processing bundle files...")
-            self.process_bundle_files(bundle_files)
-        
-        elapsed_time = time.time() - start_time
-        logger.info(f"=== EXTRACTION COMPLETE ===")
-        logger.info(f"Total time: {elapsed_time:.2f} seconds")
-        logger.info(f"Attack sprites: {self.total_atksprites}")
-        logger.info(f"Battle backgrounds: {self.total_battlebgs}")
-        logger.info(f"Audio files: {len(self.extracted_audio)}")
-        logger.info(f"Stats data: {sum(self.extracted_stats.values())}")
+            logger.info(f"Found {len(unity_files)} asset files and {len(bundle_files)} bundle files")
+            
+            # Initialize counters
+            self.total_atksprites = 0
+            self.total_battlebgs = 0
+            self.extracted_stats = {
+                "GameData": 0,
+                "CharacterData": 0,
+                "StatsData": 0,
+                "ConfigData": 0,
+                "JsonData": 0
+            }
+            
+            if unity_files:
+                logger.info("Processing asset files...")
+                self.process_asset_files(unity_files)
+            
+            if bundle_files:
+                logger.info("Processing bundle files...")
+                self.process_bundle_files(bundle_files)
+            
+            elapsed_time = time.time() - start_time
+            logger.info(f"=== EXTRACTION COMPLETE ===")
+            logger.info(f"Total time: {elapsed_time:.2f} seconds")
+            logger.info(f"Attack sprites: {len(self.extracted_atksprites)}")
+            logger.info(f"Battle backgrounds: {self.battlebg_counter}")
+            logger.info(f"Hit/Dmg sprites: {len(self.extracted_hit_sprites)}")
+            logger.info(f"Audio files: {len(self.extracted_audio)}")
+            logger.info(f"Stats data: {sum(self.extracted_stats.values())}")
+            logger.info(f"All extraction outputs saved to: {self._output_base.resolve()}")
+            if self.extracted_hit_sprites:
+                logger.info(f"Hit/Dmg sprites folder: {self.hit_sprites_dir.resolve()}")
+            with self._unmatched_lock:
+                unmatched = list(self._unmatched_texture_names)
+            if unmatched and (len(self.extracted_atksprites) == 0 or self.battlebg_counter == 0):
+                sample = sorted(unmatched)[:30]
+                logger.info(f"Sample of texture/sprite names not matched (add patterns in code if needed): {sample}")
+        finally:
+            if original_cwd is not None:
+                try:
+                    os.chdir(original_cwd)
+                except Exception:
+                    pass
     
     def process_asset_files(self, unity_files):
         """Process asset files with parallel processing"""
@@ -1136,10 +1200,7 @@ class MasterExtractor:
         }
         
         try:
-            # Load Unity environment once and extract everything
             env = UnityPy.load(str(asset_path))
-            
-            # Pre-filter objects by type for maximum speed
             texture2d_objects = []
             sprite_objects = []
             audio_objects = []
@@ -1190,6 +1251,20 @@ class MasterExtractor:
                                 import traceback
                                 logger.error(f"Traceback: {traceback.format_exc()}")
                         
+                        # Check for hit/dmg sprites (dmg_*, hit_*)
+                        elif self.is_hit_sprite_texture(data):
+                            try:
+                                success, _ = self.save_hit_sprite_texture(data)
+                            except Exception as e:
+                                logger.error(f"Error saving hit sprite texture: {e}")
+                                import traceback
+                                logger.error(f"Traceback: {traceback.format_exc()}")
+                        else:
+                            # Debug: record unmatched texture names (sample)
+                            with self._unmatched_lock:
+                                if len(self._unmatched_texture_names) < self._unmatched_max:
+                                    self._unmatched_texture_names.add(self.get_texture_name(data, "Texture2D"))
+                        
                         return atksprite_count, battlebg_count
                     except Exception as e:
                         logger.debug(f"Error reading Texture2D object: {e}")
@@ -1202,7 +1277,7 @@ class MasterExtractor:
                     result["atksprites"] += atksprite_count
                     result["battlebgs"] += battlebg_count
             
-            # Process Sprite objects in parallel (attack sprites)
+            # Process Sprite objects (attack sprites and hit/dmg sprites)
             if sprite_objects:
                 def process_sprite(obj):
                     try:
@@ -1215,6 +1290,17 @@ class MasterExtractor:
                                 logger.error(f"Error saving atksprite sprite: {e}")
                                 import traceback
                                 logger.error(f"Traceback: {traceback.format_exc()}")
+                        elif self.is_hit_sprite_sprite(data):
+                            try:
+                                self.save_hit_sprite_sprite(data)
+                            except Exception as e:
+                                logger.error(f"Error saving hit sprite: {e}")
+                                import traceback
+                                logger.error(f"Traceback: {traceback.format_exc()}")
+                        else:
+                            with self._unmatched_lock:
+                                if len(self._unmatched_texture_names) < self._unmatched_max:
+                                    self._unmatched_texture_names.add(self.get_texture_name(data, "Sprite"))
                         return 0
                     except Exception as e:
                         logger.debug(f"Error reading Sprite object: {e}")
@@ -1264,54 +1350,44 @@ class MasterExtractor:
         return result
     
     def save_atksprite_texture(self, texture_data):
-        """Save attack sprite texture with minimal processing"""
+        """Save attack sprite texture with minimal processing (add before save to match working detection counts)."""
         try:
             if hasattr(texture_data, 'image') and texture_data.image:
                 safe_name = self.get_texture_name(texture_data, "Texture2D")
                 if not safe_name:
                     return False, None
-                
-                # Thread-safe check and add
                 with self._atksprites_lock:
                     if safe_name in self.extracted_atksprites:
                         return False, None
                     self.extracted_atksprites.add(safe_name)
-                
-                output_file = self.atksprites_dir / f"{safe_name}.png"
-                
-                # Write directly without existence check (trust set tracking)
+                output_file = self.atksprites_dir.resolve() / f"{safe_name}.png"
                 texture_data.image.save(str(output_file), 'PNG', optimize=False)
                 return True, output_file.name
             return False, None
         except Exception as e:
-            logger.debug(f"Error saving atksprite texture: {e}")
+            logger.warning(f"Error saving atksprite texture to disk: {e} (dir: {self.atksprites_dir})")
             return False, None
     
     def save_atksprite_sprite(self, sprite_data):
-        """Save attack sprite with minimal processing"""
+        """Save attack sprite with minimal processing (add before save to match working detection counts)."""
         try:
             safe_name = self.get_texture_name(sprite_data, "Sprite")
             if not safe_name:
                 return False, None
-            
-            # Thread-safe check and add
             with self._atksprites_lock:
                 if safe_name in self.extracted_atksprites:
                     return False, None
                 self.extracted_atksprites.add(safe_name)
-            
-            output_file = self.atksprites_dir / f"{safe_name}.png"
-            
-            # Write directly without existence check (trust set tracking)
+            output_file = self.atksprites_dir.resolve() / f"{safe_name}.png"
             if hasattr(sprite_data, 'texture') and sprite_data.texture and hasattr(sprite_data.texture, 'image'):
                 sprite_data.texture.image.save(str(output_file), 'PNG', optimize=False)
-                return True, output_file.name
             elif hasattr(sprite_data, 'image') and sprite_data.image:
                 sprite_data.image.save(str(output_file), 'PNG', optimize=False)
-                return True, output_file.name
-            return False, None
+            else:
+                return False, None
+            return True, output_file.name
         except Exception as e:
-            logger.debug(f"Error saving atksprite sprite: {e}")
+            logger.warning(f"Error saving atksprite sprite to disk: {e} (dir: {self.atksprites_dir})")
             return False, None
     
     def save_battlebg_texture(self, texture_data):
@@ -1321,19 +1397,56 @@ class MasterExtractor:
                 safe_name = self.get_texture_name(texture_data, "Texture2D")
                 if not safe_name:
                     return False, None
-                
-                # Thread-safe counter increment
                 with self._battlebgs_lock:
                     self.battlebg_counter += 1
                     counter = self.battlebg_counter
-                
-                output_file = self.battlebg_dir / f"BattleBg_{counter:04d}_{safe_name}.png"
-                
+                output_file = self.battlebg_dir.resolve() / f"BattleBg_{counter:04d}_{safe_name}.png"
                 texture_data.image.save(str(output_file), 'PNG', optimize=False)
                 return True, output_file.name
             return False, None
         except Exception as e:
-            logger.debug(f"Error saving battlebg texture: {e}")
+            logger.warning(f"Error saving battlebg texture to disk: {e} (dir: {self.battlebg_dir})")
+            return False, None
+    
+    def save_hit_sprite_texture(self, texture_data):
+        """Save hit/dmg sprite texture (dmg_*, hit_*) to extracted_hit_sprites (add before save to match working detection)."""
+        try:
+            if not hasattr(texture_data, 'image') or not texture_data.image:
+                return False, None
+            safe_name = self.get_texture_name(texture_data, "Texture2D")
+            if not safe_name:
+                return False, None
+            with self._hit_sprites_lock:
+                if safe_name in self.extracted_hit_sprites:
+                    return False, None
+                self.extracted_hit_sprites.add(safe_name)
+            output_file = self.hit_sprites_dir.resolve() / f"{safe_name}.png"
+            texture_data.image.save(str(output_file), 'PNG', optimize=False)
+            return True, output_file.name
+        except Exception as e:
+            logger.warning(f"Error saving hit sprite texture to disk: {e} (dir: {self.hit_sprites_dir})")
+            return False, None
+    
+    def save_hit_sprite_sprite(self, sprite_data):
+        """Save hit/dmg sprite (dmg_*, hit_*) to extracted_hit_sprites (add before save to match working detection)."""
+        try:
+            safe_name = self.get_texture_name(sprite_data, "Sprite")
+            if not safe_name:
+                return False, None
+            with self._hit_sprites_lock:
+                if safe_name in self.extracted_hit_sprites:
+                    return False, None
+                self.extracted_hit_sprites.add(safe_name)
+            output_file = self.hit_sprites_dir.resolve() / f"{safe_name}.png"
+            if hasattr(sprite_data, 'texture') and sprite_data.texture and hasattr(sprite_data.texture, 'image'):
+                sprite_data.texture.image.save(str(output_file), 'PNG', optimize=False)
+            elif hasattr(sprite_data, 'image') and sprite_data.image:
+                sprite_data.image.save(str(output_file), 'PNG', optimize=False)
+            else:
+                return False, None
+            return True, output_file.name
+        except Exception as e:
+            logger.warning(f"Error saving hit sprite to disk: {e} (dir: {self.hit_sprites_dir})")
             return False, None
     
     def process_stats_object(self, obj, obj_data):
@@ -1460,35 +1573,49 @@ class MasterExtractor:
                     pbar.update(1)
     
     def extract_all_from_single_bundle(self, bundle_path):
-        """Extract audio from a single bundle in one UnityPy load"""
+        """Extract audio and textures/sprites (atksprite, battlebg, hit) from a single bundle."""
         try:
-            # Load bundle once and extract everything
             env = UnityPy.load(str(bundle_path))
-            
-            # Pre-filter objects by type - only extract audio, skip dim_mon animations
             audio_objects = []
-            
+            texture2d_objects = []
+            sprite_objects = []
             for obj in env.objects:
                 obj_type = obj.type.name
                 if obj_type == "AudioClip":
                     audio_objects.append(obj)
-            
-            # Process audio only
-            def process_audio(obj):
-                try:
-                    audio_data = obj.read()
-                    return self.extract_audio_clip(obj, audio_data)
-                except Exception:
-                    return False
-            
-            # Process audio sequentially
+                elif obj_type == "Texture2D":
+                    texture2d_objects.append(obj)
+                elif obj_type == "Sprite":
+                    sprite_objects.append(obj)
+            # Audio
             for obj in audio_objects:
                 try:
-                    process_audio(obj)
+                    audio_data = obj.read()
+                    self.extract_audio_clip(obj, audio_data)
                 except Exception:
                     pass
-            
-            # Clear memory (reduce frequency for better performance)
+            # Texture2D: attack sprites, battle bgs, hit/dmg sprites (same logic as asset files)
+            for obj in texture2d_objects:
+                try:
+                    data = obj.read()
+                    if self.is_atksprite_texture(data):
+                        self.save_atksprite_texture(data)
+                    elif self.is_battlebg_texture(data):
+                        self.save_battlebg_texture(data)
+                    elif self.is_hit_sprite_texture(data):
+                        self.save_hit_sprite_texture(data)
+                except Exception:
+                    pass
+            # Sprite: attack sprites, hit/dmg sprites
+            for obj in sprite_objects:
+                try:
+                    data = obj.read()
+                    if self.is_atksprite_sprite(data):
+                        self.save_atksprite_sprite(data)
+                    elif self.is_hit_sprite_sprite(data):
+                        self.save_hit_sprite_sprite(data)
+                except Exception:
+                    pass
             del env
             # Only collect garbage every 25 bundles to maximize throughput
             if hasattr(self, '_bundle_count'):
@@ -1502,47 +1629,35 @@ class MasterExtractor:
             logger.error(f"Error in bundle extraction from {bundle_path}: {e}")
     
     def extract_audio_clip(self, audio_obj, audio_data):
-        """Extract audio clip with minimal processing"""
+        """Extract audio clip. UnityPy returns {filename_with_ext: bytes}. Use correct extension; count on attempt (match working behavior)."""
         audio_name = audio_data.m_Name
-        
-        # Thread-safe check
         with self._audio_lock:
             if audio_name in self.extracted_audio:
                 return False
             self.extracted_audio.add(audio_name)
-        
         try:
             if not audio_data.samples:
                 self.failed_audio.add(audio_name)
                 return False
-            
-            sample_data = list(audio_data.samples.values())[0]
+            # samples dict key is filename with correct extension (e.g. "se_attack.wav" or "bgm_01.ogg")
+            sample_filename, sample_data = next(iter(audio_data.samples.items()))
             if not sample_data:
                 self.failed_audio.add(audio_name)
                 return False
-            
-            # Quick categorization
+            # Use key as filename if it looks like "name.ext", else fallback to audio_name.wav
+            out_filename = sample_filename if (sample_filename and "." in sample_filename) else f"{audio_name}.wav"
             if audio_name.startswith("se_"):
-                output_dir = self.se_dir
-                output_path = self.se_dir / f"{audio_name}.wav"
+                out_dir = self.se_dir
             elif audio_name.startswith("bgm_"):
-                output_dir = self.bgm_dir
-                output_path = self.bgm_dir / f"{audio_name}.wav"
+                out_dir = self.bgm_dir
             else:
-                output_dir = self.game_dir
-                output_path = self.game_dir / f"{audio_name}.wav"
-            
-            # Save directly (directory already exists from __init__)
+                out_dir = self.game_dir
+            output_path = out_dir.resolve() / out_filename
             with open(str(output_path), 'wb') as f:
-                if f is None:
-                    self.failed_audio.add(audio_name)
-                    return False
                 f.write(sample_data)
-            
             return True
-            
         except Exception as e:
-            logger.debug(f"Error extracting audio clip {audio_name}: {e}")
+            logger.warning(f"Error saving audio clip to disk {audio_name}: {e}")
             self.failed_audio.add(audio_name)
             return False
     

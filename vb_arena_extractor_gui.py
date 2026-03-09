@@ -388,8 +388,9 @@ class ExtractorGUI:
             logging.info("=" * 50)
             logging.info("Extraction completed - checking results...")
             logging.info(f"Audio files extracted: {len(self.extractor.extracted_audio)}")
-            logging.info(f"Attack sprites: {getattr(self.extractor, 'total_atksprites', 0)}")
-            logging.info(f"Battle backgrounds: {getattr(self.extractor, 'total_battlebgs', 0)}")
+            logging.info(f"Attack sprites: {len(getattr(self.extractor, 'extracted_atksprites', set()))}")
+            logging.info(f"Battle backgrounds: {getattr(self.extractor, 'battlebg_counter', 0)}")
+            logging.info(f"Hit/Dmg sprites: {len(getattr(self.extractor, 'extracted_hit_sprites', set()))}")
             logging.info(f"Stats data: {sum(getattr(self.extractor, 'extracted_stats', {}).values())}")
             logging.info("=" * 50)
             
