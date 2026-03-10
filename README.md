@@ -31,9 +31,6 @@ Extracts JSON game data, .wav SFX/BGM, battle background PNGs, and attack sprite
 Place audio files in the VBHelper folder:
 - extracted_audio
 
-
-![extracted_folder_names](https://github.com/lightheel/vb-helper-data-extractor/blob/main/extracted_folder_names.png)
-
 # NOTE
 Setting up the assets for using Battle requires you run both **VB Helper Data Extractor** and **VB Helper Sprite Extractor**.
 
