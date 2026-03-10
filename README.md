@@ -5,9 +5,9 @@ APK extractor built using UnityPy.
 Extracts JSON game data, .wav SFX/BGM, battle background PNGs, and attack sprite PNGs.
 
 # Instructions
-1. Download [windows-vb-helper-data-extractor.exe](https://github.com/lightheel/vb-helper-data-extractor/releases/download/Windows/windows-vb-helper-data-extractor.exe) from v1.0.0 releases.
+1. Download [windows-vb-helper-data-extractor-v1.0.1.exe](https://github.com/lightheel/vb-helper-data-extractor/releases/download/v.1.0.1/windows-vb-helper-data-extractor-v1.0.1.exe) from v1.0.1 releases.
 
-2. Select VITAL BRACELET ARENA_2.1.0.apk with the "Browse" button.
+2. Select VITAL BRACELET ARENA_2.1.0.apk with the "Browse" button. (If you have an XAPK file, rename the file type to APK)
 
 ![apk_select](https://github.com/lightheel/vb-helper-data-extractor/blob/main/apk_select.png)
 
