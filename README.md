@@ -20,13 +20,16 @@ Extracts JSON game data, .wav SFX/BGM, battle background PNGs, and attack sprite
 ![extract_button](https://github.com/lightheel/vb-helper-data-extractor/blob/main/extract_button.png)
 
 
-4. Create a folder on your Android device's root storage if one doesn't already exist.
+4. Create a VBHelper folder on your Android device's root storage if one doesn't already exist.
 
-4. Copy the following folders to VBHelper folder:
+4. Copy the following folders to VBHelper battle_sprites folder:
 - extracted_atksprites
-- extracted_audio
 - extracted_battlebgs
 - extracted_digimon_stats
+- extracted_hit_sprites
+
+Place audio files in the VBHelper folder:
+- extracted_audio
 
 
 ![extracted_folder_names](https://github.com/lightheel/vb-helper-data-extractor/blob/main/extracted_folder_names.png)
